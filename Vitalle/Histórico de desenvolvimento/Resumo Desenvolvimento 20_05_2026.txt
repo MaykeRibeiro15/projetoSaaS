@@ -1,0 +1,245 @@
+============================================================
+RESUMO DE DESENVOLVIMENTO - VITALLE
+Data: 20/05/2026
+Tipo: Ajustes no Dashboard + Criação do banco Supabase
+Autor: Assistente Claude
+Skills utilizadas:
+  - .claude/skills/tlc-spec-driven (Quick Mode para Dashboard,
+    Medium/Large para schema do banco)
+  - MCP oficial Supabase (autorizado pelo usuário nesta sessão)
+============================================================
+
+ÍNDICE
+------
+1. Ajustes na visão de Dashboard (feitos no início da sessão)
+2. Criação do banco de dados Supabase
+3. Verificação / Advisors
+4. O que faltou / Próximos passos
+
+============================================================
+1. AJUSTES NA VISÃO DE DASHBOARD
+============================================================
+
+Arquivo modificado:
+  frontend/src/app/(dashboard)/dashboard/page.tsx
+
+Resumo das mudanças:
+
+  (a) "Ações Rápidas"
+      - Título acentuado corretamente: "Ações Rápidas".
+      - Removido o botão "Nova Evolução" e tudo que dele
+        dependia (estado openEvolution, import do
+        NewEvolutionModal e do ícone TrendingUp).
+      - Botões mantidos: "Nova Consulta" e "Novo Paciente".
+
+  (b) "Lembretes"
+      - "5 aniversariantes esta semana" alterado para
+        "5 aniversariantes do mês".
+
+  (c) "Consultas de Hoje"
+      - Link "Ver agenda completa" trocado de <a href="/agenda">
+        para <Link href="/agenda"> do next/link, garantindo
+        navegação SPA (client-side) preservando sessão/cache.
+
+Observação: o componente
+  frontend/src/components/dashboard/new-evolution-modal.tsx
+NÃO foi excluído. Permanece como dead code reaproveitável
+para a tela /evolucao. Pode ser removido em uma passada de
+limpeza futura.
+
+============================================================
+2. CRIAÇÃO DO BANCO DE DADOS SUPABASE
+============================================================
+
+Projeto identificado via MCP:
+  Nome:        Data_base_vitalle_prd
+  Project ID:  qakfcyurfroqjvykbdwe
+  Região:      us-east-2
+  Postgres:    17.6.1.121
+  Status:      ACTIVE_HEALTHY
+
+Estado inicial: schema "public" totalmente vazio.
+Extensões já habilitadas: pgcrypto, uuid-ossp (suficientes).
+
+Foram aplicadas 7 migrations idempotentes via
+mcp.apply_migration (todas com {"success": true}):
+
+  001_init_enums_and_utils
+       - Função utilitária public.set_updated_at()
+         (trigger BEFORE UPDATE p/ updated_at).
+       - 10 ENUMs em conformidade com schema.prisma:
+           UserRole, SubscriptionStatus, SubscriptionPlan,
+           BillingCycle, AppointmentStatus, PaymentStatus,
+           PaymentMethod, InvoiceStatus,
+           WhatsAppMessageDirection, WhatsAppMessageStatus.
+
+  002_core_identity_tables
+       - tenants, users, refresh_tokens, doctors, managers.
+       - Índices por tenant_id, email, crm, token.
+       - UNIQUE compostos: (email, tenant_id) em users;
+         user_id UNIQUE em doctors e managers.
+       - Triggers de updated_at onde aplicável.
+
+  003_clinical_tables
+       - patients (UNIQUE (cpf, tenant_id)),
+         appointments, medical_records, patient_evolutions.
+       - Índices por tenant_id, doctor_id, patient_id,
+         date_time, status, name, phone, created_at.
+       - Arrays text[] para attachments/images com default
+         vazio (NOT NULL).
+
+  004_financial_tables
+       - subscriptions (price_monthly/price_total NUMERIC(10,2),
+         discount NUMERIC(5,2)),
+       - payments (webhook_payload JSONB, external_id, etc.),
+       - invoices (UNIQUE em payment_id).
+
+  005_auxiliary_tables
+       - contract_acceptances, whatsapp_messages
+         (colunas "from"/"to" quoted por serem palavras
+         reservadas), audit_logs (old_data/new_data JSONB).
+       - Índices por action/entity/created_at em audit_logs.
+
+  006_enable_rls_and_policies
+       - ALTER TABLE ... ENABLE ROW LEVEL SECURITY em todas
+         as 15 tabelas.
+       - Função STABLE public.current_tenant_id() lendo
+         current_setting('app.current_tenant_id', true)::uuid.
+       - 15 POLICIES "<tabela>_tenant_isolation" cobrindo
+         FOR ALL (USING + WITH CHECK) baseadas em tenant_id.
+         refresh_tokens usa subselect em users para amarrar
+         ao tenant.
+
+  007_advisor_fixes (correção dos próprios advisors)
+       - Travado search_path = pg_catalog, public em
+         set_updated_at() e current_tenant_id() (lint 0011).
+       - Criados índices que faltavam:
+           patient_evolutions(doctor_id) e
+           payments(subscription_id) (lint 0001).
+
+Resultado final (mcp.list_tables):
+
+  Schema public — 15 tabelas com RLS habilitada (0 linhas):
+    tenants, users, refresh_tokens, doctors, managers,
+    patients, appointments, medical_records,
+    patient_evolutions, subscriptions, payments, invoices,
+    contract_acceptances, whatsapp_messages, audit_logs.
+
+============================================================
+3. VERIFICAÇÃO / ADVISORS
+============================================================
+
+Segurança (após o fix 007):
+  - 2 warnings remanescentes referem-se à função
+    public.rls_auto_enable() com SECURITY DEFINER exposta
+    para anon e authenticated. ESSA FUNÇÃO NÃO FOI CRIADA
+    NESTA SESSÃO — já existia previamente no projeto
+    (provavelmente um helper antigo). NÃO foi mexida para
+    não impactar nada existente. Avaliar manualmente:
+        - REVOKE EXECUTE ON FUNCTION public.rls_auto_enable()
+          FROM anon, authenticated;
+      ou converter para SECURITY INVOKER. Links de
+      remediação:
+        https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable
+        https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable
+
+Performance:
+  - 36 INFOs do tipo "Unused Index" (esperado: banco vazio,
+    nenhuma query foi executada ainda). Vão desaparecer
+    sozinhos conforme o uso.
+  - Os 2 unindexed FKs (lint 0001) foram corrigidos pela
+    migration 007.
+
+============================================================
+4. O QUE FALTOU / PRÓXIMOS PASSOS
+============================================================
+
+Pontos pendentes em ordem de prioridade:
+
+  (1) Sincronizar com Prisma — IMPORTANTE
+      O backend NestJS usa Prisma como source-of-truth do
+      schema, mas as migrations criadas vivem APENAS no
+      banco Supabase (via MCP). A pasta prisma/migrations/
+      no repositório continua VAZIA.
+
+      Sugestões (escolher uma):
+        (a) Rodar localmente:
+              cd backend
+              npx prisma db pull
+              npx prisma migrate diff \
+                --from-empty \
+                --to-schema-datamodel prisma/schema.prisma \
+                --script > prisma/migrations/0_init/migration.sql
+              npx prisma migrate resolve --applied "0_init"
+            Isso versiona a baseline para evitar drift.
+        (b) OU dropar tudo e refazer via "prisma migrate dev
+            --name init" usando a DATABASE_URL do Supabase
+            (mais limpo, mas apaga as 15 tabelas vazias e
+            recria).
+
+  (2) Configurar app.current_tenant_id na conexão Prisma
+      Para a RLS funcionar quando NÃO usar service_role:
+      criar Prisma middleware/extension que execute
+        SET app.current_tenant_id = '<tenant_id_do_JWT>'
+      em cada request autenticado. Hoje as policies negam
+      tudo a quem não setar essa variável.
+
+  (3) Service Role vs Anon
+      O .env do backend precisa de SUPABASE_SERVICE_ROLE_KEY
+      configurada se quiser bypass de RLS no NestJS. Não
+      foi configurado nesta sessão.
+
+  (4) Função pré-existente rls_auto_enable()
+      Decidir REVOKE / DROP / converter para SECURITY
+      INVOKER conforme o uso original.
+
+  (5) Seed
+      Continua faltando prisma/seed.ts (1 tenant + 1 doctor
+      + 2 pacientes + 3 appointments) para QA local. Não
+      foi criado nesta sessão.
+
+  (6) Connection strings
+      Não populei backend/.env com DATABASE_URL/DIRECT_URL
+      do Supabase porque nenhuma credencial foi
+      compartilhada. Quando for ligar o backend ao banco:
+        - DATABASE_URL = pooler 6543 (pgbouncer transaction)
+        - DIRECT_URL   = porta 5432 (migrações)
+        - SUPABASE_URL = https://qakfcyurfroqjvykbdwe.supabase.co
+        - SUPABASE_ANON_KEY = (pegar do painel)
+        - SUPABASE_SERVICE_ROLE_KEY = (pegar do painel)
+
+  (7) Storage / Edge Functions
+      Não foi configurado bucket de Storage (necessário
+      para uploads de avatar, anexos de prontuário,
+      imagens de evolução — fase 2.6 do plano original).
+      Não foi criada nenhuma Edge Function.
+
+  (8) Itens do plano original (Fase 0 e 1) ainda pendentes
+      - prisma/seed.ts
+      - output: 'standalone' em next.config.mjs
+      - Registrar globalmente GlobalExceptionFilter,
+        AuditInterceptor, ThrottlerGuard, JwtAuthGuard
+      - GET /health
+      - Logger estruturado (pino)
+      - Validar assinatura HMAC dos webhooks PagBank /
+        WhatsApp
+      - Corrigir cross-tenant leak no WhatsAppService
+
+============================================================
+5. ARQUIVOS TOCADOS NESTA SESSÃO
+============================================================
+- frontend/src/app/(dashboard)/dashboard/page.tsx [modificado]
+- Histórico de desenvolvimento/Resumo Desenvolvimento
+  20_05_2026.txt                                  [criado]
+
+Banco Supabase (projeto qakfcyurfroqjvykbdwe):
+- 15 tabelas criadas no schema public, todas com RLS ON
+- 10 enums criados
+- 15 policies de isolamento por tenant_id
+- 2 funções utilitárias (set_updated_at, current_tenant_id)
+- 7 migrations registradas no histórico do Supabase
+  (001 a 007, todas success=true)
+
+============================================================
+FIM DO RELATÓRIO - 20/05/2026
+============================================================

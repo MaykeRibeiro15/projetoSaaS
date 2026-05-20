@@ -1,20 +1,19 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Header } from '@/components/layout/header';
 import {
   Calendar,
   Users,
   CheckCircle2,
   Clock,
-  TrendingUp,
   AlertCircle,
 } from 'lucide-react';
 import { SalesLineChart } from '@/components/dashboard/sales-line-chart';
 import { TopProductsChart } from '@/components/dashboard/top-products-chart';
 import { NewAppointmentModal } from '@/components/dashboard/new-appointment-modal';
 import { NewPatientModal } from '@/components/dashboard/new-patient-modal';
-import { NewEvolutionModal } from '@/components/dashboard/new-evolution-modal';
 
 const stats = [
   { label: 'Consultas Hoje', value: '12', icon: Calendar, change: '+3 vs ontem', color: 'bg-[#406B5B]' },
@@ -49,7 +48,6 @@ const statusLabels: Record<string, string> = {
 export default function DashboardPage() {
   const [openAppointment, setOpenAppointment] = useState(false);
   const [openPatient, setOpenPatient] = useState(false);
-  const [openEvolution, setOpenEvolution] = useState(false);
 
   return (
     <div>
@@ -88,12 +86,12 @@ export default function DashboardPage() {
                 <h2 className="text-lg font-heading font-semibold text-[#406B5B]">
                   Consultas de Hoje
                 </h2>
-                <a
+                <Link
                   href="/agenda"
                   className="text-sm text-[#91AE9E] hover:text-[#406B5B] font-medium transition-colors"
                 >
                   Ver agenda completa
-                </a>
+                </Link>
               </div>
             </div>
             <div className="divide-y divide-[#E4D5C3]/30">
@@ -124,7 +122,7 @@ export default function DashboardPage() {
           <div className="space-y-6">
             <div className="bg-white rounded-2xl p-6 border border-[#E4D5C3]/50 shadow-sm">
               <h2 className="text-lg font-heading font-semibold text-[#406B5B] mb-4">
-                Acoes Rapidas
+                Ações Rápidas
               </h2>
               <div className="space-y-3">
                 <button
@@ -143,14 +141,6 @@ export default function DashboardPage() {
                   <Users className="w-5 h-5 text-[#406B5B] group-hover:scale-110 transition-transform" />
                   <span className="text-sm font-medium text-[#406B5B]">Novo Paciente</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setOpenEvolution(true)}
-                  className="w-full flex items-center gap-3 p-3 rounded-xl bg-[#B89D83]/10 hover:bg-[#B89D83]/20 transition-colors group text-left"
-                >
-                  <TrendingUp className="w-5 h-5 text-[#406B5B] group-hover:scale-110 transition-transform" />
-                  <span className="text-sm font-medium text-[#406B5B]">Nova Evolucao</span>
-                </button>
               </div>
             </div>
 
@@ -163,7 +153,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="flex items-start gap-3">
                   <AlertCircle className="w-4 h-4 text-[#91AE9E] mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-[#406B5B]">5 aniversariantes esta semana</p>
+                  <p className="text-sm text-[#406B5B]">5 aniversariantes do mês</p>
                 </div>
               </div>
             </div>
@@ -173,7 +163,6 @@ export default function DashboardPage() {
 
       <NewAppointmentModal open={openAppointment} onClose={() => setOpenAppointment(false)} />
       <NewPatientModal open={openPatient} onClose={() => setOpenPatient(false)} />
-      <NewEvolutionModal open={openEvolution} onClose={() => setOpenEvolution(false)} />
     </div>
   );
 }

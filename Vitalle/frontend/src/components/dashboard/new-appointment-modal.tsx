@@ -4,11 +4,19 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { ModalShell } from './modal-shell';
 import { Calendar, Clock, User, FileText, Loader2 } from 'lucide-react';
+import { useAuthStore } from '@/store/auth-store';
+import {
+  createAppointment,
+  resolveDoctorId,
+  type AppointmentRow,
+} from '@/services/appointments-service';
 
 interface NewAppointmentModalProps {
   open: boolean;
   onClose: () => void;
-  onCreated?: (data: AppointmentFormData) => void;
+  onCreated?: (appointment: AppointmentRow) => void;
+  /** Pré-seleciona uma data (yyyy-MM-dd) quando aberto a partir da agenda. */
+  defaultDate?: string;
 }
 
 export interface AppointmentFormData {
@@ -20,17 +28,20 @@ export interface AppointmentFormData {
   notes?: string;
 }
 
-const initialState: AppointmentFormData = {
-  patient: '',
-  date: new Date().toISOString().slice(0, 10),
-  time: '08:00',
-  duration: 30,
-  type: 'Retorno',
-  notes: '',
-};
+function todayIsoDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
-export function NewAppointmentModal({ open, onClose, onCreated }: NewAppointmentModalProps) {
-  const [form, setForm] = useState<AppointmentFormData>(initialState);
+export function NewAppointmentModal({ open, onClose, onCreated, defaultDate }: NewAppointmentModalProps) {
+  const user = useAuthStore((s) => s.user);
+  const [form, setForm] = useState<AppointmentFormData>({
+    patient: '',
+    date: defaultDate || todayIsoDate(),
+    time: '08:00',
+    duration: 30,
+    type: 'Retorno',
+    notes: '',
+  });
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -55,36 +66,43 @@ export function NewAppointmentModal({ open, onClose, onCreated }: NewAppointment
   const handleSubmit = async (ev: React.FormEvent) => {
     ev.preventDefault();
     if (!validate()) return;
+    if (!user?.tenantId) {
+      toast.error('Sessão expirada. Faça login novamente.');
+      return;
+    }
+
     setSubmitting(true);
-
     try {
-      // TODO: substituir por chamada real
-      // await api.post('/api/v1/appointments', {
-      //   patientId, doctorId, dateTime: `${form.date}T${form.time}`,
-      //   duration: form.duration, type: form.type, notes: form.notes,
-      // });
-      await new Promise((r) => setTimeout(r, 600));
+      const doctorId = await resolveDoctorId(user.tenantId);
+      const dateTimeIso = new Date(`${form.date}T${form.time}:00`).toISOString();
 
-      // Persistência local (mock) para sobreviver à página
-      if (typeof window !== 'undefined') {
-        const prev = JSON.parse(localStorage.getItem('vitalle_mock_appointments') || '[]');
-        prev.unshift({
-          ...form,
-          id: `local-${Date.now()}`,
-          status: 'SCHEDULED',
-          createdAt: new Date().toISOString(),
-        });
-        localStorage.setItem('vitalle_mock_appointments', JSON.stringify(prev.slice(0, 50)));
-      }
+      const created = await createAppointment({
+        tenantId: user.tenantId,
+        doctorId,
+        patientName: form.patient,
+        dateTimeIso,
+        duration: form.duration,
+        type: form.type,
+        notes: form.notes,
+      });
 
       toast.success('Consulta criada com sucesso', {
         description: `${form.patient} - ${form.date} às ${form.time}`,
       });
-      onCreated?.(form);
-      setForm(initialState);
+      onCreated?.(created);
+      setForm({
+        patient: '',
+        date: defaultDate || todayIsoDate(),
+        time: '08:00',
+        duration: 30,
+        type: 'Retorno',
+        notes: '',
+      });
       onClose();
-    } catch {
-      toast.error('Não foi possível criar a consulta');
+    } catch (err) {
+      toast.error('Não foi possível criar a consulta', {
+        description: err instanceof Error ? err.message : 'Erro desconhecido.',
+      });
     } finally {
       setSubmitting(false);
     }
@@ -211,10 +229,6 @@ export function NewAppointmentModal({ open, onClose, onCreated }: NewAppointment
             />
           </div>
         </div>
-
-        <p className="text-xs text-[#406B5B]/50 italic">
-          Backend ainda não conectado. Esta consulta fica salva apenas no navegador (mock) até a Fase 4 do plano de finalização.
-        </p>
       </form>
     </ModalShell>
   );
