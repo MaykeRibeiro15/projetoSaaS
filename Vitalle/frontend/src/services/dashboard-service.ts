@@ -24,6 +24,8 @@ async function countAppointmentsToday(tenantId: string, start: Date, end: Date):
     .from('appointments')
     .select('id', { count: 'exact', head: true })
     .eq('tenant_id', tenantId)
+    .is('deleted_at', null)
+    .not('status', 'in', '("CANCELED","NO_SHOW")')
     .gte('date_time', start.toISOString())
     .lte('date_time', end.toISOString());
   if (error) throw new Error(error.message);
@@ -113,8 +115,11 @@ export async function fetchDashboardData(tenantId: string): Promise<DashboardDat
 
   const pacientesAtivosDeltaLabel = `+${patientsThisMonth} este mês`;
 
+  // totalToday exclui CANCELED/NO_SHOW — usa como base para % confirmadas
+  // canceladasPct usa base = totalToday + canceledToday para refletir o universo real do dia
+  const baseTotal = totalToday + canceledToday;
   const confirmadasPct = totalToday > 0 ? Math.round((confirmedToday / totalToday) * 100) : 0;
-  const canceladasPct = totalToday > 0 ? Math.round((canceledToday / totalToday) * 100) : 0;
+  const canceladasPct  = baseTotal > 0  ? Math.round((canceledToday  / baseTotal)  * 100) : 0;
 
   return {
     stats: {

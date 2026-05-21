@@ -1,114 +1,115 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { ModalShell } from './modal-shell';
+import { ModalShell } from '@/components/dashboard/modal-shell';
 import { User, CreditCard, Phone, Mail, Calendar, MapPin, Loader2 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth-store';
-import { createPatient } from '@/services/patients-service';
+import { updatePatient, PatientRow } from '@/services/patients-service';
 
-interface NewPatientModalProps {
+interface EditPatientModalProps {
   open: boolean;
+  patient: PatientRow | null;
   onClose: () => void;
-  onCreated?: () => void;
+  onUpdated?: () => void;
 }
 
-export interface PatientFormData {
+interface FormData {
   name: string;
   cpf: string;
   phone: string;
-  email?: string;
-  dateOfBirth?: string;
-  gender?: string;
-  address?: string;
+  email: string;
+  dateOfBirth: string;
+  gender: string;
+  address: string;
 }
 
-const initialState: PatientFormData = {
-  name: '',
-  cpf: '',
-  phone: '',
-  email: '',
-  dateOfBirth: '',
-  gender: '',
-  address: '',
-};
-
-function onlyDigits(value: string) {
-  return value.replace(/\D/g, '');
+function onlyDigits(v: string) {
+  return v.replace(/\D/g, '');
 }
 
-function maskCPF(value: string) {
-  const d = onlyDigits(value).slice(0, 11);
+function maskCPF(v: string) {
+  const d = onlyDigits(v).slice(0, 11);
   return d
     .replace(/(\d{3})(\d)/, '$1.$2')
     .replace(/(\d{3})(\d)/, '$1.$2')
     .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
 }
 
-function maskPhone(value: string) {
-  const d = onlyDigits(value).slice(0, 11);
-  if (d.length <= 10) {
-    return d.replace(/(\d{2})(\d{4})(\d{0,4}).*/, '($1) $2-$3').trim();
-  }
+function maskPhone(v: string) {
+  const d = onlyDigits(v).slice(0, 11);
+  if (d.length <= 10) return d.replace(/(\d{2})(\d{4})(\d{0,4}).*/, '($1) $2-$3').trim();
   return d.replace(/(\d{2})(\d{5})(\d{0,4}).*/, '($1) $2-$3').trim();
 }
 
-export function NewPatientModal({ open, onClose, onCreated }: NewPatientModalProps) {
+function toDateInput(iso: string | null): string {
+  if (!iso) return '';
+  return iso.slice(0, 10); // yyyy-MM-dd
+}
+
+export function EditPatientModal({ open, patient, onClose, onUpdated }: EditPatientModalProps) {
   const user = useAuthStore((s) => s.user);
-  const [form, setForm] = useState<PatientFormData>(initialState);
+  const [form, setForm] = useState<FormData>({
+    name: '', cpf: '', phone: '', email: '', dateOfBirth: '', gender: '', address: '',
+  });
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const update = <K extends keyof PatientFormData>(field: K, value: PatientFormData[K]) => {
+  // preenche o form toda vez que o paciente muda
+  useEffect(() => {
+    if (!patient) return;
+    setErrors({});
+    setForm({
+      name:        patient.name,
+      cpf:         maskCPF(patient.cpf),
+      phone:       maskPhone(patient.phone),
+      email:       patient.email ?? '',
+      dateOfBirth: toDateInput(patient.date_of_birth),
+      gender:      patient.gender ?? '',
+      address:     patient.address ?? '',
+    });
+  }, [patient]);
+
+  const update = <K extends keyof FormData>(field: K, value: FormData[K]) => {
     setForm((prev) => ({ ...prev, [field]: value }));
     setErrors((prev) => ({ ...prev, [field]: '' }));
   };
 
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!form.name.trim() || form.name.trim().length < 3) {
+    if (!form.name.trim() || form.name.trim().length < 3)
       e.name = 'Informe o nome completo (min. 3 caracteres).';
-    }
-    const cpfDigits = onlyDigits(form.cpf);
-    if (cpfDigits.length !== 11) e.cpf = 'CPF deve ter 11 digitos.';
-    const phoneDigits = onlyDigits(form.phone);
-    if (phoneDigits.length < 10) e.phone = 'Telefone invalido.';
-    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+    if (onlyDigits(form.cpf).length !== 11)
+      e.cpf = 'CPF deve ter 11 digitos.';
+    if (onlyDigits(form.phone).length < 10)
+      e.phone = 'Telefone invalido.';
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
       e.email = 'E-mail invalido.';
-    }
     setErrors(e);
     return Object.keys(e).length === 0;
   };
 
   const handleSubmit = async (ev: React.FormEvent) => {
     ev.preventDefault();
-    if (!validate()) return;
-    if (!user?.tenantId) {
-      toast.error('Sessão expirada. Faça login novamente.');
-      return;
-    }
+    if (!validate() || !patient || !user?.tenantId) return;
     setSubmitting(true);
-
     try {
-      await createPatient({
-        tenantId: user.tenantId,
-        name: form.name,
-        cpf: onlyDigits(form.cpf),
-        phone: onlyDigits(form.phone),
-        email: form.email || null,
+      await updatePatient(patient.id, user.tenantId, {
+        name:        form.name,
+        cpf:         onlyDigits(form.cpf),
+        phone:       onlyDigits(form.phone),
+        email:       form.email || null,
         dateOfBirth: form.dateOfBirth || null,
-        gender: form.gender || null,
-        address: form.address || null,
+        gender:      form.gender || null,
+        address:     form.address || null,
       });
-
-      toast.success('Paciente cadastrado com sucesso', {
-        description: `${form.name} foi adicionado à base.`,
+      toast.success('Cadastro atualizado', {
+        description: `${form.name} foi atualizado com sucesso.`,
       });
-      setForm(initialState);
-      onCreated?.();
+      onUpdated?.();
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Não foi possível cadastrar o paciente');
+      toast.error(err instanceof Error ? err.message : 'Nao foi possivel atualizar o paciente.');
     } finally {
       setSubmitting(false);
     }
@@ -122,8 +123,8 @@ export function NewPatientModal({ open, onClose, onCreated }: NewPatientModalPro
     <ModalShell
       open={open}
       onClose={onClose}
-      title="Novo Paciente"
-      subtitle="Cadastre um novo paciente na base"
+      title="Editar Paciente"
+      subtitle="Altere os dados do cadastro do paciente"
       widthClass="max-w-2xl"
       footer={
         <>
@@ -137,17 +138,18 @@ export function NewPatientModal({ open, onClose, onCreated }: NewPatientModalPro
           </button>
           <button
             type="submit"
-            form="new-patient-form"
+            form="edit-patient-form"
             disabled={submitting}
             className="px-5 py-2.5 rounded-xl bg-[#406B5B] text-white font-semibold hover:bg-[#406B5B]/90 transition-colors disabled:opacity-50 flex items-center gap-2"
           >
             {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-            {submitting ? 'Salvando...' : 'Cadastrar paciente'}
+            {submitting ? 'Salvando...' : 'Salvar alteracoes'}
           </button>
         </>
       }
     >
-      <form id="new-patient-form" onSubmit={handleSubmit} className="space-y-4">
+      <form id="edit-patient-form" onSubmit={handleSubmit} className="space-y-4">
+        {/* Nome */}
         <div>
           <label className={labelClass}>Nome completo</label>
           <div className="relative">
@@ -164,6 +166,7 @@ export function NewPatientModal({ open, onClose, onCreated }: NewPatientModalPro
           {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
         </div>
 
+        {/* CPF + Telefone */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className={labelClass}>CPF</label>
@@ -197,6 +200,7 @@ export function NewPatientModal({ open, onClose, onCreated }: NewPatientModalPro
           </div>
         </div>
 
+        {/* Email + Data de nascimento */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className={labelClass}>E-mail</label>
@@ -226,6 +230,7 @@ export function NewPatientModal({ open, onClose, onCreated }: NewPatientModalPro
           </div>
         </div>
 
+        {/* Sexo + Endereço */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className={labelClass}>Sexo</label>
@@ -254,7 +259,6 @@ export function NewPatientModal({ open, onClose, onCreated }: NewPatientModalPro
             </div>
           </div>
         </div>
-
       </form>
     </ModalShell>
   );

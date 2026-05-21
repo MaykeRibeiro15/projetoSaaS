@@ -21,22 +21,19 @@ export interface PatientRow {
 export interface CreatePatientPayload {
   tenantId: string;
   name: string;
-  cpf: string;        // apenas dígitos
-  phone: string;      // apenas dígitos
+  cpf: string;
+  phone: string;
   email?: string | null;
-  dateOfBirth?: string | null;  // 'yyyy-MM-dd' ou ISO
+  dateOfBirth?: string | null;
   gender?: string | null;
   address?: string | null;
 }
 
-/**
- * Cria um paciente real na tabela public.patients do Supabase.
- *
- * - CPF é único por tenant (constraint @@unique([cpf, tenantId])).
- * - Telefone, nome e CPF são obrigatórios no schema.
- * - Em caso de CPF duplicado (constraint 23505) a mensagem é
- *   traduzida para pt-BR.
- */
+export interface PatientStats {
+  total: number;
+  thisMonth: number;
+}
+
 export async function createPatient(payload: CreatePatientPayload): Promise<PatientRow> {
   const insertPayload = {
     tenant_id: payload.tenantId,
@@ -58,9 +55,8 @@ export async function createPatient(payload: CreatePatientPayload): Promise<Pati
 
   if (error || !data) {
     const msg = error?.message || '';
-    // Duplicidade de CPF (constraint @@unique([cpf, tenantId]))
     if (error?.code === '23505' || msg.toLowerCase().includes('duplicate')) {
-      throw new Error('Já existe um paciente cadastrado com este CPF.');
+      throw new Error('Ja existe um paciente cadastrado com este CPF.');
     }
     throw new Error(error?.message || 'Falha ao cadastrar paciente.');
   }
@@ -68,18 +64,130 @@ export async function createPatient(payload: CreatePatientPayload): Promise<Pati
   return data as PatientRow;
 }
 
-/**
- * Lista pacientes ativos do tenant (mais recentes primeiro).
- * Útil para futuras telas de listagem / autocompletar.
- */
-export async function listPatients(tenantId: string, limit = 50): Promise<PatientRow[]> {
+export async function listPatients(tenantId: string, limit = 100): Promise<PatientRow[]> {
   const { data, error } = await supabase
     .from('patients')
     .select('*')
     .eq('tenant_id', tenantId)
+    .eq('is_active', true)
     .is('deleted_at', null)
-    .order('created_at', { ascending: false })
+    .order('name', { ascending: true })
     .limit(limit);
+
   if (error) throw new Error(error.message);
   return (data || []) as PatientRow[];
+}
+
+export async function searchPatients(
+  tenantId: string,
+  query: string,
+  limit = 50,
+): Promise<PatientRow[]> {
+  const digits = query.replace(/\D/g, '');
+  const namePart = query.trim();
+
+  let orClause = `name.ilike.%${namePart}%`;
+  if (digits.length > 0) {
+    orClause += `,cpf.like.%${digits}%,phone.like.%${digits}%`;
+  }
+
+  const { data, error } = await supabase
+    .from('patients')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('is_active', true)
+    .is('deleted_at', null)
+    .or(orClause)
+    .order('name', { ascending: true })
+    .limit(limit);
+
+  if (error) throw new Error(error.message);
+  return (data || []) as PatientRow[];
+}
+
+export async function getPatientStats(tenantId: string): Promise<PatientStats> {
+  const { count: total, error: errTotal } = await supabase
+    .from('patients')
+    .select('id', { count: 'exact', head: true })
+    .eq('tenant_id', tenantId)
+    .eq('is_active', true)
+    .is('deleted_at', null);
+
+  if (errTotal) throw new Error(errTotal.message);
+
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+
+  const { count: thisMonth, error: errMonth } = await supabase
+    .from('patients')
+    .select('id', { count: 'exact', head: true })
+    .eq('tenant_id', tenantId)
+    .eq('is_active', true)
+    .is('deleted_at', null)
+    .gte('created_at', startOfMonth.toISOString());
+
+  if (errMonth) throw new Error(errMonth.message);
+
+  return {
+    total: total ?? 0,
+    thisMonth: thisMonth ?? 0,
+  };
+}
+
+export interface UpdatePatientPayload {
+  name?: string;
+  cpf?: string;
+  phone?: string;
+  email?: string | null;
+  dateOfBirth?: string | null;
+  gender?: string | null;
+  address?: string | null;
+}
+
+export async function updatePatient(
+  id: string,
+  tenantId: string,
+  payload: UpdatePatientPayload,
+): Promise<PatientRow> {
+  const updateData: Record<string, unknown> = {};
+  if (payload.name !== undefined)        updateData.name          = payload.name.trim();
+  if (payload.cpf !== undefined)         updateData.cpf           = payload.cpf;
+  if (payload.phone !== undefined)       updateData.phone         = payload.phone;
+  if (payload.email !== undefined)       updateData.email         = payload.email?.trim() || null;
+  if (payload.dateOfBirth !== undefined) updateData.date_of_birth = payload.dateOfBirth || null;
+  if (payload.gender !== undefined)      updateData.gender        = payload.gender || null;
+  if (payload.address !== undefined)     updateData.address       = payload.address?.trim() || null;
+
+  const { data, error } = await supabase
+    .from('patients')
+    .update(updateData)
+    .eq('id', id)
+    .eq('tenant_id', tenantId)
+    .select('*')
+    .single();
+
+  if (error || !data) {
+    const msg = error?.message || '';
+    if (error?.code === '23505' || msg.toLowerCase().includes('duplicate')) {
+      throw new Error('Ja existe um paciente cadastrado com este CPF.');
+    }
+    throw new Error(error?.message || 'Falha ao atualizar paciente.');
+  }
+
+  return data as PatientRow;
+}
+
+/**
+ * Soft-delete: marca deleted_at e desativa o paciente.
+ * O registro permanece no banco para auditoria.
+ */
+export async function deletePatient(id: string, tenantId: string): Promise<void> {
+  const { error } = await supabase
+    .from('patients')
+    .update({ deleted_at: new Date().toISOString(), is_active: false })
+    .eq('id', id)
+    .eq('tenant_id', tenantId);
+
+  if (error) throw new Error(error.message || 'Falha ao excluir paciente.');
 }
