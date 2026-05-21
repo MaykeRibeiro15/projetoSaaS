@@ -31,6 +31,7 @@ import {
   type AppointmentRow,
 } from '@/services/appointments-service';
 import { NewAppointmentModal } from '@/components/dashboard/new-appointment-modal';
+import { EditAppointmentModal } from '@/components/dashboard/edit-appointment-modal';
 
 type ViewMode = 'day' | 'week' | 'month';
 
@@ -69,6 +70,7 @@ export default function AgendaPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openNew, setOpenNew] = useState(false);
+  const [editing, setEditing] = useState<AppointmentRow | null>(null);
 
   const range = useMemo(() => rangeFor(viewMode, currentDate), [viewMode, currentDate]);
 
@@ -217,6 +219,7 @@ export default function AgendaPage() {
               appointments={appointments}
               viewMode={viewMode}
               currentDate={currentDate}
+              onSelect={setEditing}
             />
           )}
         </div>
@@ -235,6 +238,13 @@ export default function AgendaPage() {
         onCreated={handleCreated}
         defaultDate={format(currentDate, 'yyyy-MM-dd')}
       />
+
+      <EditAppointmentModal
+        open={!!editing}
+        appointment={editing}
+        onClose={() => setEditing(null)}
+        onUpdated={() => fetchData()}
+      />
     </div>
   );
 }
@@ -252,16 +262,18 @@ function AppointmentsList({
   appointments,
   viewMode,
   currentDate,
+  onSelect,
 }: {
   appointments: AppointmentRow[];
   viewMode: ViewMode;
   currentDate: Date;
+  onSelect: (apt: AppointmentRow) => void;
 }) {
   if (viewMode === 'day') {
     return (
       <ul className="divide-y divide-[#E4D5C3]/30">
         {appointments.map((apt) => (
-          <AppointmentItem key={apt.id} apt={apt} showDate={false} />
+          <AppointmentItem key={apt.id} apt={apt} showDate={false} onClick={() => onSelect(apt)} />
         ))}
       </ul>
     );
@@ -303,7 +315,7 @@ function AppointmentsList({
             </header>
             <ul className="divide-y divide-[#E4D5C3]/30">
               {items.map((apt) => (
-                <AppointmentItem key={apt.id} apt={apt} showDate={false} />
+                <AppointmentItem key={apt.id} apt={apt} showDate={false} onClick={() => onSelect(apt)} />
               ))}
             </ul>
           </section>
@@ -313,7 +325,24 @@ function AppointmentsList({
   );
 }
 
-function AppointmentItem({ apt, showDate }: { apt: AppointmentRow; showDate: boolean }) {
+const statusBadgeLabels: Record<string, string> = {
+  CONFIRMED: 'Confirmado',
+  SCHEDULED: 'Agendado',
+  CANCELED: 'Cancelado',
+  RESCHEDULED: 'Reagendado',
+  COMPLETED: 'Concluído',
+  NO_SHOW: 'Faltou',
+};
+
+function AppointmentItem({
+  apt,
+  showDate,
+  onClick,
+}: {
+  apt: AppointmentRow;
+  showDate: boolean;
+  onClick: () => void;
+}) {
   const dt = new Date(apt.date_time);
   const time = format(dt, 'HH:mm');
   const patientName = apt.patients?.name || 'Paciente';
@@ -330,19 +359,29 @@ function AppointmentItem({ apt, showDate }: { apt: AppointmentRow; showDate: boo
         )}
       </div>
       <div className="flex-1 p-3">
-        <div className={`p-3 rounded-xl text-white ${color}`}>
+        <button
+          type="button"
+          onClick={onClick}
+          className={`p-3 rounded-xl text-white ${color} w-full text-left hover:opacity-90 transition-opacity`}
+          title="Clique para editar / alterar status"
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <User className="w-3.5 h-3.5" />
               <span className="text-sm font-medium">{patientName}</span>
             </div>
-            <div className="flex items-center gap-1">
-              <Clock className="w-3 h-3" />
-              <span className="text-xs">{apt.duration}min</span>
+            <div className="flex items-center gap-3">
+              <span className="bg-white/20 px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wide font-semibold">
+                {statusBadgeLabels[apt.status]}
+              </span>
+              <div className="flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                <span className="text-xs">{apt.duration}min</span>
+              </div>
             </div>
           </div>
           {apt.type && <p className="text-xs opacity-80 mt-1">{apt.type}</p>}
-        </div>
+        </button>
       </div>
     </li>
   );

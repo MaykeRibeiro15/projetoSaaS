@@ -103,11 +103,16 @@ export async function registerFirstUser(payload: RegisterPayload): Promise<AuthU
   };
 }
 
-export async function loginWithCredentials(email: string, password: string): Promise<AuthUser> {
+export interface LoginResult {
+  user: AuthUser;
+  requiresMfa: boolean;
+}
+
+export async function loginWithCredentials(email: string, password: string): Promise<LoginResult> {
   const passwordHash = await sha256(password);
   const { data, error } = await supabase
     .from('users')
-    .select('id, name, email, role, tenant_id, password_hash, is_active')
+    .select('id, name, email, role, tenant_id, password_hash, is_active, mfa_enabled')
     .eq('email', email.trim().toLowerCase())
     .maybeSingle();
 
@@ -117,10 +122,13 @@ export async function loginWithCredentials(email: string, password: string): Pro
   if (data.password_hash !== passwordHash) throw new Error('E-mail ou senha incorretos.');
 
   return {
-    id: data.id,
-    name: data.name,
-    email: data.email,
-    role: data.role,
-    tenantId: data.tenant_id,
+    user: {
+      id: data.id,
+      name: data.name,
+      email: data.email,
+      role: data.role,
+      tenantId: data.tenant_id,
+    },
+    requiresMfa: !!data.mfa_enabled,
   };
 }

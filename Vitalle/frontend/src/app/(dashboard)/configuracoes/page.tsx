@@ -7,10 +7,9 @@ import {
   Building2,
   Bell,
   Shield,
-  Palette,
-  Globe,
   Save,
 } from 'lucide-react';
+import { MfaSetupCard } from '@/components/dashboard/mfa-setup';
 
 export default function ConfiguracoesPage() {
   const [activeTab, setActiveTab] = useState('perfil');
@@ -182,32 +181,17 @@ export default function ConfiguracoesPage() {
             )}
 
             {activeTab === 'seguranca' && (
-              <div className="bg-white rounded-2xl p-8 border border-[#E4D5C3]/50">
-                <h2 className="text-xl font-heading font-bold text-[#406B5B] mb-6">
-                  Segurança
-                </h2>
-                <div className="space-y-6">
-                  <div className="p-4 bg-[#91AE9E]/10 rounded-xl border border-[#91AE9E]/30">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-[#406B5B]">Autenticação de dois fatores (MFA)</p>
-                        <p className="text-xs text-[#406B5B]/50 mt-0.5">Adicione uma camada extra de segurança</p>
-                      </div>
-                      <button className="px-4 py-2 bg-[#406B5B] text-white rounded-lg text-sm font-medium hover:bg-[#406B5B]/90 transition-colors">
-                        Ativar
-                      </button>
-                    </div>
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold text-[#406B5B] mb-4">Alterar Senha</h3>
-                    <div className="space-y-3">
-                      <input type="password" placeholder="Senha atual" className="w-full px-4 py-3 bg-white border border-[#E4D5C3] rounded-xl text-sm text-[#406B5B] placeholder:text-[#406B5B]/40 focus:outline-none focus:ring-2 focus:ring-[#406B5B]/20" />
-                      <input type="password" placeholder="Nova senha" className="w-full px-4 py-3 bg-white border border-[#E4D5C3] rounded-xl text-sm text-[#406B5B] placeholder:text-[#406B5B]/40 focus:outline-none focus:ring-2 focus:ring-[#406B5B]/20" />
-                      <input type="password" placeholder="Confirmar nova senha" className="w-full px-4 py-3 bg-white border border-[#E4D5C3] rounded-xl text-sm text-[#406B5B] placeholder:text-[#406B5B]/40 focus:outline-none focus:ring-2 focus:ring-[#406B5B]/20" />
-                      <button className="flex items-center gap-2 px-6 py-3 bg-[#406B5B] text-white rounded-xl font-medium hover:bg-[#406B5B]/90 transition-colors">
-                        Atualizar Senha
-                      </button>
-                    </div>
+              <div className="space-y-6">
+                <MfaSetupCard />
+                <div className="bg-white rounded-2xl p-8 border border-[#E4D5C3]/50">
+                  <h3 className="text-sm font-semibold text-[#406B5B] mb-4">Alterar Senha</h3>
+                  <div className="space-y-3">
+                    <input type="password" placeholder="Senha atual" className="w-full px-4 py-3 bg-white border border-[#E4D5C3] rounded-xl text-sm text-[#406B5B] placeholder:text-[#406B5B]/40 focus:outline-none focus:ring-2 focus:ring-[#406B5B]/20" />
+                    <input type="password" placeholder="Nova senha" className="w-full px-4 py-3 bg-white border border-[#E4D5C3] rounded-xl text-sm text-[#406B5B] placeholder:text-[#406B5B]/40 focus:outline-none focus:ring-2 focus:ring-[#406B5B]/20" />
+                    <input type="password" placeholder="Confirmar nova senha" className="w-full px-4 py-3 bg-white border border-[#E4D5C3] rounded-xl text-sm text-[#406B5B] placeholder:text-[#406B5B]/40 focus:outline-none focus:ring-2 focus:ring-[#406B5B]/20" />
+                    <button className="flex items-center gap-2 px-6 py-3 bg-[#406B5B] text-white rounded-xl font-medium hover:bg-[#406B5B]/90 transition-colors">
+                      Atualizar Senha
+                    </button>
                   </div>
                 </div>
               </div>

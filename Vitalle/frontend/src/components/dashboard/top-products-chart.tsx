@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useMemo, useState } from 'react';
 import {
   BarChart,
   Bar,
@@ -10,22 +11,9 @@ import {
   ResponsiveContainer,
   Cell,
 } from 'recharts';
-import { Package } from 'lucide-react';
-
-// Mock: TOP 10 produtos/serviços mais vendidos. Quando existir o
-// modelo Product/Service no backend, virá de GET /api/v1/products/top.
-const data = [
-  { name: 'Consulta Clínica', vendas: 184 },
-  { name: 'Retorno', vendas: 142 },
-  { name: 'Avaliação Cardiológica', vendas: 96 },
-  { name: 'Exame ECG', vendas: 81 },
-  { name: 'Consulta Dermatológica', vendas: 73 },
-  { name: 'Aplicação Botox', vendas: 58 },
-  { name: 'Procedimento Estético', vendas: 47 },
-  { name: 'Limpeza de Pele', vendas: 39 },
-  { name: 'Consulta Nutrição', vendas: 32 },
-  { name: 'Pacote Check-up', vendas: 25 },
-];
+import { Package, Loader2 } from 'lucide-react';
+import { useAuthStore } from '@/store/auth-store';
+import { fetchTopProcedures, type TopProcedurePoint } from '@/services/dashboard-service';
 
 // Paleta da marca em gradiente, do escuro pro claro
 const colors = [
@@ -42,7 +30,32 @@ const colors = [
 ];
 
 export function TopProductsChart() {
-  const totalVendas = data.reduce((acc, d) => acc + d.vendas, 0);
+  const tenantId = useAuthStore((s) => s.user?.tenantId);
+  const [data, setData] = useState<TopProcedurePoint[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    fetchTopProcedures(tenantId)
+      .then((rows) => {
+        if (!cancelled) setData(rows);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Falha ao carregar TOP 10.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tenantId]);
+
+  const totalVendas = useMemo(() => data.reduce((acc, d) => acc + d.vendas, 0), [data]);
 
   return (
     <div className="bg-white rounded-2xl border border-[#E4D5C3]/50 shadow-sm">
@@ -52,7 +65,9 @@ export function TopProductsChart() {
             <Package className="w-5 h-5 text-[#B89D83]" />
             TOP 10 produtos mais vendidos
           </h2>
-          <p className="text-xs text-[#406B5B]/50 mt-1">Ranking do mês</p>
+          <p className="text-xs text-[#406B5B]/50 mt-1">
+            Ranking do mês · tipos de consulta com mais agendamentos ativos
+          </p>
         </div>
         <div className="text-right">
           <p className="text-xs text-[#406B5B]/50">Vendas no top 10</p>
@@ -61,47 +76,59 @@ export function TopProductsChart() {
         </div>
       </div>
       <div className="p-4 h-96">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            data={data}
-            layout="vertical"
-            margin={{ top: 8, right: 24, left: 8, bottom: 8 }}
-          >
-            <CartesianGrid stroke="#E4D5C3" strokeDasharray="3 3" horizontal={false} />
-            <XAxis
-              type="number"
-              stroke="#406B5B"
-              tick={{ fontSize: 11, fill: '#406B5B' }}
-              tickLine={false}
-              axisLine={{ stroke: '#E4D5C3' }}
-            />
-            <YAxis
-              type="category"
-              dataKey="name"
-              stroke="#406B5B"
-              tick={{ fontSize: 11, fill: '#406B5B' }}
-              tickLine={false}
-              axisLine={{ stroke: '#E4D5C3' }}
-              width={170}
-            />
-            <Tooltip
-              cursor={{ fill: 'rgba(228, 213, 195, 0.25)' }}
-              contentStyle={{
-                backgroundColor: '#ffffff',
-                border: '1px solid #E4D5C3',
-                borderRadius: 12,
-                fontSize: 12,
-              }}
-              labelStyle={{ color: '#406B5B', fontWeight: 600 }}
-              formatter={(value: number) => [`${value} vendas`, 'Quantidade']}
-            />
-            <Bar dataKey="vendas" radius={[0, 8, 8, 0]}>
-              {data.map((_, idx) => (
-                <Cell key={idx} fill={colors[idx % colors.length]} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+        {error ? (
+          <div className="h-full flex items-center justify-center text-sm text-red-600">{error}</div>
+        ) : loading ? (
+          <div className="h-full flex items-center justify-center text-[#406B5B]/60 gap-2">
+            <Loader2 className="w-4 h-4 animate-spin" /> Carregando...
+          </div>
+        ) : data.length === 0 ? (
+          <div className="h-full flex items-center justify-center text-sm text-[#406B5B]/50">
+            Sem consultas concluídas / agendadas neste mês.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={data}
+              layout="vertical"
+              margin={{ top: 8, right: 24, left: 8, bottom: 8 }}
+            >
+              <CartesianGrid stroke="#E4D5C3" strokeDasharray="3 3" horizontal={false} />
+              <XAxis
+                type="number"
+                stroke="#406B5B"
+                tick={{ fontSize: 11, fill: '#406B5B' }}
+                tickLine={false}
+                axisLine={{ stroke: '#E4D5C3' }}
+              />
+              <YAxis
+                type="category"
+                dataKey="name"
+                stroke="#406B5B"
+                tick={{ fontSize: 11, fill: '#406B5B' }}
+                tickLine={false}
+                axisLine={{ stroke: '#E4D5C3' }}
+                width={170}
+              />
+              <Tooltip
+                cursor={{ fill: 'rgba(228, 213, 195, 0.25)' }}
+                contentStyle={{
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #E4D5C3',
+                  borderRadius: 12,
+                  fontSize: 12,
+                }}
+                labelStyle={{ color: '#406B5B', fontWeight: 600 }}
+                formatter={(value: number) => [`${value} vendas`, 'Quantidade']}
+              />
+              <Bar dataKey="vendas" radius={[0, 8, 8, 0]}>
+                {data.map((_, idx) => (
+                  <Cell key={idx} fill={colors[idx % colors.length]} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   );

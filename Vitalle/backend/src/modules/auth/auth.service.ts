@@ -29,37 +29,99 @@ export class AuthService {
       throw new UnauthorizedException('Conta desativada');
     }
 
-    // Update last login
+    // Se MFA está ativo, NÃO emite tokens agora — devolve requiresMfa.
+    if (user.mfaEnabled) {
+      return {
+        requiresMfa: true,
+        userId: user.id,
+        email: user.email,
+      };
+    }
+
+    return this.finalizeLogin(user.id, user.tenantId, user.role, ipAddress, userAgent);
+  }
+
+  async completeMfaLogin(userId: string, code: string, ipAddress?: string, userAgent?: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.mfaEnabled || !user.mfaSecret) {
+      throw new UnauthorizedException('MFA não configurado.');
+    }
+    // Importa de forma "lazy" para evitar dependência circular se MfaService crescer.
+    // Aqui validamos inline reaproveitando a mesma lógica (RFC 6238).
+    const { createHmac } = await import('crypto');
+    const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    const decode = (s: string): Buffer => {
+      const clean = s.replace(/=+$/, '').toUpperCase();
+      let bits = 0, val = 0;
+      const out: number[] = [];
+      for (const ch of clean) {
+        const i = BASE32.indexOf(ch);
+        if (i === -1) continue;
+        val = (val << 5) | i; bits += 5;
+        if (bits >= 8) { out.push((val >>> (bits - 8)) & 0xff); bits -= 8; }
+      }
+      return Buffer.from(out);
+    };
+    const check = (secret: string, c: string, window = 1): boolean => {
+      const cleaned = (c || '').trim();
+      if (!/^\d{6}$/.test(cleaned)) return false;
+      const now = Math.floor(Date.now() / 1000);
+      for (let i = -window; i <= window; i++) {
+        const counter = Math.floor((now + i * 30) / 30);
+        const buf = Buffer.alloc(8);
+        buf.writeUInt32BE(Math.floor(counter / 0x100000000), 0);
+        buf.writeUInt32BE(counter >>> 0, 4);
+        const hmac = createHmac('sha1', decode(secret)).update(buf).digest();
+        const offset = hmac[hmac.length - 1] & 0x0f;
+        const bin =
+          ((hmac[offset] & 0x7f) << 24) |
+          (hmac[offset + 1] << 16) |
+          (hmac[offset + 2] << 8) |
+          hmac[offset + 3];
+        if ((bin % 1_000_000).toString().padStart(6, '0') === cleaned) return true;
+      }
+      return false;
+    };
+    if (!check(user.mfaSecret, code)) {
+      throw new UnauthorizedException('Código MFA inválido.');
+    }
+    return this.finalizeLogin(user.id, user.tenantId, user.role, ipAddress, userAgent);
+  }
+
+  private async finalizeLogin(
+    userId: string,
+    tenantId: string,
+    role: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
     await this.prisma.user.update({
-      where: { id: user.id },
+      where: { id: userId },
       data: { lastLoginAt: new Date() },
     });
-
-    // Audit log
     await this.prisma.auditLog.create({
       data: {
-        tenantId: user.tenantId,
-        userId: user.id,
+        tenantId,
+        userId,
         action: 'LOGIN',
         entity: 'user',
-        entityId: user.id,
-        ipAddress: ipAddress,
-        userAgent: userAgent,
+        entityId: userId,
+        ipAddress,
+        userAgent,
       },
     });
-
-    const tokens = await this.generateTokens(user.id, user.tenantId, user.role);
-
+    const tokens = await this.generateTokens(userId, tenantId, role);
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
     return {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        tenantId: user.tenantId,
-        avatarUrl: user.avatarUrl,
+        id: user!.id,
+        name: user!.name,
+        email: user!.email,
+        role: user!.role,
+        tenantId: user!.tenantId,
+        avatarUrl: user!.avatarUrl,
       },
     };
   }

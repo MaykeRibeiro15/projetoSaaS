@@ -5,8 +5,9 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Eye, EyeOff, Mail, Lock, Loader2 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth-store';
-import { hasAnyUser, loginWithCredentials } from '@/services/auth-service';
+import { hasAnyUser, loginWithCredentials, type AuthUser } from '@/services/auth-service';
 import { isValidEmail } from '@/lib/supabase';
+import { verifyLoginMfaCode } from '@/services/mfa-service';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -16,6 +17,8 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [hasUser, setHasUser] = useState<boolean | null>(null);
+  const [mfaPending, setMfaPending] = useState<AuthUser | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
   const { setUser } = useAuthStore();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -42,11 +45,36 @@ export default function LoginPage() {
 
     setIsLoading(true);
     try {
-      const user = await loginWithCredentials(email, password);
+      const { user, requiresMfa } = await loginWithCredentials(email, password);
+      if (requiresMfa) {
+        setMfaPending(user);
+        setIsLoading(false);
+        return;
+      }
       setUser(user);
       router.push('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha no login.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleMfaSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mfaPending) return;
+    setError('');
+    setIsLoading(true);
+    try {
+      const ok = await verifyLoginMfaCode(mfaPending.id, mfaCode);
+      if (!ok) {
+        setError('Código MFA inválido. Verifique o aplicativo autenticador.');
+        return;
+      }
+      setUser(mfaPending);
+      router.push('/dashboard');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha na verificação.');
     } finally {
       setIsLoading(false);
     }
@@ -64,10 +92,58 @@ export default function LoginPage() {
       </div>
 
       <div className="mb-8">
-        <h1 className="text-3xl font-heading font-bold text-[#406B5B] mb-2">Bem-vindo de volta</h1>
-        <p className="text-[#406B5B]/60">Acesse sua conta para continuar</p>
+        <h1 className="text-3xl font-heading font-bold text-[#406B5B] mb-2">
+          {mfaPending ? 'Verificação em duas etapas' : 'Bem-vindo de volta'}
+        </h1>
+        <p className="text-[#406B5B]/60">
+          {mfaPending
+            ? `Digite o código de 6 dígitos gerado pelo seu aplicativo autenticador para ${mfaPending.email}.`
+            : 'Acesse sua conta para continuar'}
+        </p>
       </div>
 
+      {mfaPending ? (
+        <form onSubmit={handleMfaSubmit} className="space-y-5">
+          {error && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
+              {error}
+            </div>
+          )}
+          <div>
+            <label className="block text-sm font-medium text-[#406B5B] mb-2">Código MFA</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={mfaCode}
+              onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))}
+              placeholder="000000"
+              required
+              className="w-full text-center tracking-[0.5em] text-2xl font-mono px-4 py-3.5 bg-white border border-[#E4D5C3] rounded-xl text-[#406B5B] placeholder:text-[#406B5B]/30 focus:outline-none focus:ring-2 focus:ring-[#406B5B]/20"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={isLoading || mfaCode.length !== 6}
+            className="w-full py-3.5 bg-[#406B5B] text-white rounded-xl font-semibold hover:bg-[#406B5B]/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-[#406B5B]/20 flex items-center justify-center gap-2"
+          >
+            {isLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+            {isLoading ? 'Validando...' : 'Confirmar e entrar'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMfaPending(null);
+              setMfaCode('');
+              setError('');
+            }}
+            className="w-full text-sm text-[#406B5B]/60 hover:text-[#406B5B]"
+          >
+            Voltar e usar outra conta
+          </button>
+        </form>
+      ) : (
       <form onSubmit={handleSubmit} className="space-y-5">
         {info && (
           <div className="p-4 bg-[#91AE9E]/10 border border-[#91AE9E]/30 rounded-xl text-sm text-[#406B5B]">
@@ -144,6 +220,7 @@ export default function LoginPage() {
           {isLoading ? 'Entrando...' : 'Entrar'}
         </button>
       </form>
+      )}
 
       <p className="mt-8 text-center text-sm text-[#406B5B]/60">
         {hasUser === false ? (

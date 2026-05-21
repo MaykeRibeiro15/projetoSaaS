@@ -17,6 +17,9 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
 import { WhatsAppModule } from './modules/whatsapp/whatsapp.module';
 import { ContractsModule } from './modules/contracts/contracts.module';
+import { HealthModule } from './modules/health/health.module';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard } from '@nestjs/throttler';
 
 @Module({
   imports: [
@@ -41,6 +44,13 @@ import { ContractsModule } from './modules/contracts/contracts.module';
     InvoicesModule,
     WhatsAppModule,
     ContractsModule,
+    HealthModule,
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
   ],
 })
 export class AppModule {}

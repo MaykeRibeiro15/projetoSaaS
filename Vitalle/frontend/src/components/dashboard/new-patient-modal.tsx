@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { ModalShell } from './modal-shell';
 import { User, CreditCard, Phone, Mail, Calendar, MapPin, Loader2 } from 'lucide-react';
+import { useAuthStore } from '@/store/auth-store';
+import { createPatient } from '@/services/patients-service';
 
 interface NewPatientModalProps {
   open: boolean;
@@ -52,6 +54,7 @@ function maskPhone(value: string) {
 }
 
 export function NewPatientModal({ open, onClose, onCreated }: NewPatientModalProps) {
+  const user = useAuthStore((s) => s.user);
   const [form, setForm] = useState<PatientFormData>(initialState);
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -80,31 +83,32 @@ export function NewPatientModal({ open, onClose, onCreated }: NewPatientModalPro
   const handleSubmit = async (ev: React.FormEvent) => {
     ev.preventDefault();
     if (!validate()) return;
+    if (!user?.tenantId) {
+      toast.error('Sessão expirada. Faça login novamente.');
+      return;
+    }
     setSubmitting(true);
 
     try {
-      await new Promise((r) => setTimeout(r, 600));
-
-      if (typeof window !== 'undefined') {
-        const prev = JSON.parse(localStorage.getItem('vitalle_mock_patients') || '[]');
-        prev.unshift({
-          ...form,
-          cpf: onlyDigits(form.cpf),
-          phone: onlyDigits(form.phone),
-          id: 'local-' + Date.now(),
-          createdAt: new Date().toISOString(),
-        });
-        localStorage.setItem('vitalle_mock_patients', JSON.stringify(prev.slice(0, 200)));
-      }
+      await createPatient({
+        tenantId: user.tenantId,
+        name: form.name,
+        cpf: onlyDigits(form.cpf),
+        phone: onlyDigits(form.phone),
+        email: form.email || null,
+        dateOfBirth: form.dateOfBirth || null,
+        gender: form.gender || null,
+        address: form.address || null,
+      });
 
       toast.success('Paciente cadastrado com sucesso', {
-        description: form.name + ' foi adicionado a base.',
+        description: `${form.name} foi adicionado à base.`,
       });
       onCreated?.(form);
       setForm(initialState);
       onClose();
-    } catch {
-      toast.error('Nao foi possivel cadastrar o paciente');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Não foi possível cadastrar o paciente');
     } finally {
       setSubmitting(false);
     }
@@ -251,9 +255,6 @@ export function NewPatientModal({ open, onClose, onCreated }: NewPatientModalPro
           </div>
         </div>
 
-        <p className="text-xs text-[#406B5B]/50 italic">
-          Backend ainda nao conectado. O paciente e salvo apenas no navegador (mock) ate a Fase 4 do plano de finalizacao.
-        </p>
       </form>
     </ModalShell>
   );

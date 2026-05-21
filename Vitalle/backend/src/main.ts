@@ -1,11 +1,16 @@
-import { NestFactory } from '@nestjs/core';
+import { NestFactory, Reflector } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import * as compression from 'compression';
+import { GlobalExceptionFilter } from './common/filters/http-exception.filter';
+import { AuditInterceptor } from './common/interceptors/audit.interceptor';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { PrismaService } from './providers/prisma/prisma.service';
 
 async function bootstrap() {
+  const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
 
   // Security
@@ -29,6 +34,13 @@ async function bootstrap() {
     }),
   );
 
+  // Global filter, interceptor e guard JWT (com @Public() para rotas livres)
+  app.useGlobalFilters(new GlobalExceptionFilter());
+  const reflector = app.get(Reflector);
+  const prisma = app.get(PrismaService);
+  app.useGlobalInterceptors(new AuditInterceptor(prisma));
+  app.useGlobalGuards(new JwtAuthGuard(reflector));
+
   // Swagger
   const config = new DocumentBuilder()
     .setTitle('Vitalle API')
@@ -36,6 +48,7 @@ async function bootstrap() {
     .setVersion('1.0')
     .addBearerAuth()
     .addTag('auth', 'Authentication endpoints')
+    .addTag('health', 'Health check')
     .addTag('tenants', 'Tenant management')
     .addTag('users', 'User management')
     .addTag('doctors', 'Doctor management')
@@ -55,7 +68,8 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3001;
   await app.listen(port);
-  console.log(`[Vitalle] Server running on http://localhost:${port}`);
-  console.log(`[Vitalle] Swagger docs at http://localhost:${port}/api/docs`);
+  logger.log(`Server running on http://localhost:${port}`);
+  logger.log(`Swagger docs at http://localhost:${port}/api/docs`);
+  logger.log(`Health check at http://localhost:${port}/api/v1/health`);
 }
 bootstrap();
